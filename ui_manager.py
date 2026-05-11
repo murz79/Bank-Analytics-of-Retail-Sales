@@ -1,10 +1,8 @@
-import os
-
 import streamlit as st
 import plotly.express as px
 from sales_handlers import (
     add_sale_with_request, get_manager_sales,
-    create_request, get_active_requests, get_closed_requests,
+    get_active_requests, get_closed_requests,
     cancel_request,
     get_today_sales_with_points,
     get_today_successful_clients,
@@ -20,8 +18,6 @@ from utils import export_to_excel
 import pyperclip
 from datetime import date, timedelta, datetime
 from database import get_connection
-import pandas as pd
-
 
 def show_manager_page():
     st.sidebar.title(f"Менеджер: {st.session_state.full_name}")
@@ -164,7 +160,7 @@ def show_manager_page():
                 report_lines.append(f"{item['abbr']}: {item['total_quantity']}")
         else:
             report_lines.append("Кросс-продажи: нет заявок")
-        # Добавим итоговые баллы и рубли
+        #Итоговые баллы и рубли
         report_lines.append("")
         report_lines.append(f"Итого баллов: {total_rub:.0f}")
         report_text = "\n".join(report_lines)
@@ -173,10 +169,9 @@ def show_manager_page():
         st.text_area("Содержимое отчета", report_text, height=400, key="daily_report")
 
         if st.button("📋 Копировать отчет одним нажатием"):
-            pyperclip.copy(report_text)
+            st.code(report_text, language="text", line_numbers=False)
             st.success("✅ Отчет скопирован в буфер обмена!")
 
-        # Кнопка экспорта в Excel (оставляем как было)
         if not sales_df.empty:
             excel_data = export_to_excel(sales_df, "Отчет за день")
             st.download_button("📎 Скачать отчет (Excel)", data=excel_data,
@@ -188,12 +183,10 @@ def show_manager_page():
             with st.form("new_request"):
                 surname = st.text_input("Фамилия клиента *")
 
-                # Дата рождения с ограничениями
                 min_birth = date(1900, 1, 1)
                 today = date.today()
                 max_birth = today - timedelta(
-                    days=14 * 365 + 1)  # 14 лет (приблизительно, для точности можно использовать relativedelta, но для демонстрации пойдёт)
-                # Более точный расчёт: вычитаем 14 лет и один день, чтобы возраст был строго больше 14 лет (т.е. 14 лет и 1 день не подходит)
+                    days=14 * 365 + 1)
                 try:
                     max_birth = date(today.year - 14, today.month, today.day) - timedelta(days=1)
                 except ValueError:
@@ -201,11 +194,8 @@ def show_manager_page():
 
                 birth_date = st.date_input("Дата рождения", value=None, min_value=min_birth, max_value=max_birth)
 
-                # Пол
                 gender = st.radio("Пол", ["М", "Ж"], horizontal=True)
-                # Статус клиента
                 client_status = st.radio("Статус клиента", ["Новый", "Действующий"], horizontal=True)
-                # Заказанный продукт (только определённые ID)
                 product_ids = [1, 2, 3, 4, 9, 11]  # ДК, КН, КК, Стикер, ПДС, Пенсия
                 products_df = get_products_by_ids(product_ids)
                 if products_df.empty:
@@ -216,7 +206,6 @@ def show_manager_page():
 
                 submitted = st.form_submit_button("Создать заявку")
                 if submitted:
-                    # Валидация
                     if not surname.strip():
                         st.error("Введите фамилию клиента.")
                     elif birth_date is None:
@@ -225,7 +214,6 @@ def show_manager_page():
                         st.error(
                             f"Возраст клиента должен быть не менее 14 лет (дата рождения не позднее {max_birth.strftime('%d.%m.%Y')}) и не ранее 01.01.1900.")
                     else:
-                        # Создаём профиль клиента в таблице client_profile
                         conn = get_connection()
                         cursor = conn.cursor()
                         cursor.execute('''
@@ -236,7 +224,6 @@ def show_manager_page():
                         conn.commit()
                         conn.close()
 
-                        # Создаём заявку
                         status_db = "new" if client_status == "Новый" else "existing"
                         create_request_with_client(
                             st.session_state.user_id,
@@ -336,7 +323,7 @@ def show_manager_page():
                             del st.session_state['active_request_id']
                             st.rerun()
 
-                    else:  # Отмена
+                    else:
                         cancel_reason = st.selectbox(
                             "Причина отмены",
                             ["Недозвон", "Клиент не по адресу", "Не успеваю к клиенту", "Неактуально", "Другое"],
@@ -379,7 +366,6 @@ def show_manager_page():
 
     elif menu == "🎯 План продаж":
         st.header("🎯 Мой план продаж на месяц")
-        # Выбор месяца/года
         current_year = date.today().year
         current_month = date.today().month
 
@@ -392,8 +378,6 @@ def show_manager_page():
                                  index=current_month - 1, key="plan_month")
         year_month = f"{year}-{month:02d}"
 
-        # Найти руководителя менеджера
-        # Руководитель менеджера хранится в поле supervisor_id в таблице users
         conn = get_connection()
         c = conn.cursor()
         c.execute("SELECT supervisor_id FROM users WHERE id=?", (st.session_state.user_id,))
@@ -428,7 +412,6 @@ def show_manager_page():
         st.header("💡 AI-ассистент продаж")
         st.markdown("Заполните информацию о клиенте для получения рекомендаций по продуктам.")
 
-        # Инициализация данных клиента (без фамилии)
         client_data = {
             "birth_date": None,
             "gender": "",
@@ -472,7 +455,7 @@ def show_manager_page():
             if products_df.empty:
                 st.error("Нет доступных продуктов для выбора. Сообщите администратору.")
                 st.stop()
-            product_options = {row['name']: row['name'] for _, row in products_df.iterrows()}  # name -> name
+            product_options = {row['name']: row['name'] for _, row in products_df.iterrows()}
             client_data["requested_product"] = st.selectbox("Заказанный продукт",
                                                             [""] + list(product_options.keys()))
 
